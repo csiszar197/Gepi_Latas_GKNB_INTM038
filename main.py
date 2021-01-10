@@ -1,62 +1,71 @@
 import cv2
 import numpy as np
 
+#Init files:
+namesFile = "coco.names"
+configurationFile = "yolov4.cfg"
+#A weight fajl valoszinuleg hianyzik a git repobol, mert az internet feltoltesi sebessegem lassu
+#link a sulyhoz: https://github.com/AlexeyAB/darknet/releases/download/darknet_yolo_v3_optimal/yolov4.weights
+weightFile = "yolov4.weights"
+imageFile = "car2.jpg"
 
-# Load Yolo
-net = cv2.dnn.readNet("yolo3-320.weights", "YOLOv3-320.cfg")
+#Init variables:
+confidenceThreshold = 0.5
+nMaximumSuppresssionThreshold = 0.4
+inputWidth = 608
+inputheight = 608
+
+#Load YOLO with files:
+net = cv2.dnn.readNetFromDarknet(configurationFile,weightFile)
 classes = []
-with open("coco.names", "r") as f:
+with open(namesFile, "r") as f:
     classes = [line.strip() for line in f.readlines()]
-layer_names = net.getLayerNames()
-output_layers = [layer_names[i[0] - 1] for i in net.getUnconnectedOutLayers()]
-colors = np.random.uniform(0, 255, size=(len(classes), 3))
 
-# Loading image
-img = cv2.imread("street_view.jpg")
-img = cv2.resize(img, None, fx=1, fy=1)
-height, width, channels = img.shape
+#Load image:
+my_img = cv2.imread(imageFile)
+my_img = cv2.resize(my_img,(1280,720))
+bh, bw , channels = my_img.shape
 
-
-# Detecting objects
-blob = cv2.dnn.blobFromImage(img, 0.00392, (220, 220), (0, 0, 0), True, crop=False)
+#Converting into Blob:
+blob = cv2.dnn.blobFromImage(my_img,1/255,(inputWidth,inputheight),(0,0,0),swapRB= True,crop=False)
 net.setInput(blob)
-outs = net.forward(output_layers)
+last_layer = net.getUnconnectedOutLayersNames()
+layer_out = net.forward(last_layer)
 
-# Showing informations on the screen
-class_ids = []
-confidences = []
+#Get data from layers_out
 boxes = []
-for out in outs:
-    for detection in out:
-        scores = detection[5:]
-        class_id = np.argmax(scores)
-        confidence = scores[class_id]
+confidences = []
+class_ids = []
+for output in layer_out:
+    for detection in output:
+        score = detection[5:]
+        class_id = np.argmax(score)
+        confidence = score[class_id]
+        if confidence > confidenceThreshold:
+            center_x = int(detection[0] * bw)
+            center_y = int(detection[1] * bh)
+            w = int(detection[2]*bw)
+            h = int(detection[3]*bh)
+            x = int(center_x - w/2)
+            y = int(center_y - h/2)
+            boxes.append([x,y,w,h])
+            confidences.append((float(confidence)))
+            class_ids.append((class_id))
 
-        if confidence > 0.5:
-            # Object detected
-            center_x = int(detection[0] * width)
-            center_y = int(detection[1] * height)
-            w = int(detection[2] * width)
-            h = int(detection[3] * height)
+#Non-maximum suppression:
+indexes = cv2.dnn.NMSBoxes(boxes, confidences, confidenceThreshold, nMaximumSuppresssionThreshold)
 
-            # Rectangle coordinates
-            x = int(center_x - w / 2)
-            y = int(center_y - h / 2)
-            boxes.append([x, y, w, h])
-            confidences.append(float(confidence))
-            class_ids.append(class_id)
-
-
-indexes = cv2.dnn.NMSBoxes(boxes, confidences, 0.5, 0.4)
-
+#visualization:
 font = cv2.FONT_HERSHEY_PLAIN
-for i in range(len(boxes)):
-    if i in indexes:
-        x, y, w, h = boxes[i]
-        label = str(classes[class_ids[i]])
-        color = colors[i]
-        cv2.rectangle(img, (x, y), (x + w, y + h), color, 2)
-        cv2.putText(img, label, (x, y + 30), font, 1, color, 2)
-cv2.imshow("Image", img)
+colors = np.random.uniform(0,255,size = (len(boxes),3))
+for i in indexes.flatten():
+    x,y,w,h = boxes[i]
+    label = str(classes[class_ids[i]])
+    confidence = str(round(confidences[i],2))
+    color=colors[i]
+    cv2.rectangle(my_img,(x,y),(x+w,y+h),color,2)
+    cv2.putText(my_img,label + " " + confidence, (x,y+20),font,1,(255,255,0),2)
+
+cv2.imshow('img',my_img)
 cv2.waitKey(0)
 cv2.destroyAllWindows()
